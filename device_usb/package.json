@@ -1,0 +1,21 @@
+{
+  "name": "device_usb",
+  "private": true,
+  "description": "Minimal HiDock USB protocol layer for hinotes_organizer",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "usb": "^2.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}

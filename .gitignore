@@ -1,0 +1,12 @@
+.env
+.temporal/
+__pycache__/
+*.pyc
+.venv/
+output/
+.sync_state.json
+.cache/
+.state/
+config.yaml
+device_usb/node_modules/
+tmp.json
