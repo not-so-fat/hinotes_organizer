@@ -363,14 +363,14 @@ No inline timestamps in body — those live in `.segments.json`.
 
 ```yaml
 transcription:
-  provider: local          # local | assemblyai | remote
+  provider: assemblyai   # default
   model: medium            # local / worker only
   device: auto             # local / worker only: auto | cpu | cuda
   diarize: true
 
 secrets:
+  assemblyai_api_key: ""   # default provider
   hf_token: ""             # local + self-hosted worker
-  assemblyai_api_key: ""   # profile B
 
 # remote worker (profile C2)
 # transcription:
@@ -379,7 +379,7 @@ secrets:
 #   remote_token: ""
 
 sync:
-  delete_after_transcribe: false   # default true for assemblyai/remote; set explicitly for local multi-laptop
+  delete_after_transcribe: true   # default for assemblyai/remote; set false for local-only
 ```
 
 ### Transcriber plugin API

@@ -97,7 +97,19 @@ def load_config(path: Path | None = None) -> Config:
             f"Missing {config_path}. Copy {example.name} to config.yaml and edit paths.",
         )
 
-    raw: dict[str, Any] = yaml.safe_load(config_path.read_text()) or {}
+    try:
+        raw_text = config_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise UnicodeDecodeError(
+            exc.encoding,
+            exc.object,
+            exc.start,
+            exc.end,
+            f"{config_path} is not valid UTF-8 ({exc.reason}). "
+            "Re-save the file as UTF-8 or copy config.example.yaml again.",
+        ) from exc
+
+    raw: dict[str, Any] = yaml.safe_load(raw_text) or {}
 
     output = raw.get("output", {})
     audio = raw.get("audio", {})
@@ -106,7 +118,7 @@ def load_config(path: Path | None = None) -> Config:
     markdown = raw.get("markdown", {})
     secrets = raw.get("secrets", {})
 
-    provider = (transcription.get("provider") or "local").strip().lower()
+    provider = (transcription.get("provider") or "assemblyai").strip().lower()
     delete_after_transcribe_raw = sync.get("delete_after_transcribe")
     if delete_after_transcribe_raw is None:
         delete_after_transcribe = provider in ("assemblyai", "remote")

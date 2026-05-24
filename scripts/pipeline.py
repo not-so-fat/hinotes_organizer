@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from hidock.config import load_config
+from hidock.audio import probe_audio_duration_seconds
 from hidock.filename import build_markdown_filename, parse_hda_filename
 from hidock.markdown import TranscriptSegment, write_segments_json, write_transcript_markdown
 from hidock.state import FileRecord, load_state, save_state
@@ -215,7 +216,11 @@ def transcribe_pending(
             )
             result = transcriber.transcribe(audio_path, reuse_cache=reuse_cache)
             segments = result.segments
-            duration = result.duration_seconds
+            duration = probe_audio_duration_seconds(audio_path)
+            if duration is None:
+                duration = result.duration_seconds
+            if duration is None and segments:
+                duration = max(seg.end for seg in segments)
 
             if config.markdown.save_segments_json:
                 write_segments_json(segments_json_path, segments, parsed)

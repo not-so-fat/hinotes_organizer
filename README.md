@@ -1,12 +1,12 @@
 # hinotes_organizer
 
-Sync HiDock P1 recordings to your Mac, transcribe them locally with speaker labels, and save Obsidian-ready markdown — no HiNotes cloud required.
+Sync HiDock P1 recordings to your Mac, transcribe them with speaker labels (AssemblyAI by default), and save Obsidian-ready markdown — no HiNotes cloud required.
 
 ## Quick start
 
 ```bash
 cp config.example.yaml config.yaml
-# Edit config.yaml: output.dir and secrets.hf_token
+# Edit config.yaml: output.dir and secrets.assemblyai_api_key
 
 python3 -m venv .venv && source .venv/bin/activate pip install -r requirements.txt
 
@@ -53,7 +53,8 @@ Timestamps (start/end per utterance) are in a companion `.segments.json` file, l
 | Node.js 22+ | For USB sync (`device_usb/`) |
 | libusb | macOS: `brew install libusb` |
 | Python 3.10+ | Transcription pipeline |
-| Hugging Face token | Required for speaker labels — see [Speaker labels (Hugging Face)](#speaker-labels-hugging-face) below |
+| AssemblyAI API key | Default transcription provider — [assemblyai.com](https://www.assemblyai.com/) |
+| Hugging Face token | Only for `provider: local` or self-hosted worker — see [Speaker labels (Hugging Face)](#speaker-labels-hugging-face) |
 
 ## How it works
 
@@ -103,25 +104,25 @@ python scripts/pipeline.py transcribe --limit 1 --reuse-whisper
 
 ## Configuration
 
-Copy `config.example.yaml` → `config.yaml`. Two fields to fill in for local transcription:
+Copy `config.example.yaml` → `config.yaml`. Two fields to fill in:
 
 ```yaml
 output:
   dir: /path/to/your/Obsidian/Transcripts/HiDock
 
 secrets:
-  hf_token: "hf_..."   # required for speaker labels — accept pyannote/speaker-diarization-community-1
+  assemblyai_api_key: "..."   # default provider
 ```
 
 | Setting | Default | Notes |
 |---|---|---|
 | `output.dir` | `./output/transcripts` | Where markdown files are written |
-| `transcription.provider` | `local` | `local` \| `assemblyai` \| `remote` \| `custom` |
-| `secrets.hf_token` | *(local / worker)* | Required for local speaker labels |
-| `secrets.assemblyai_api_key` | *(cloud)* | Required when `provider: assemblyai` |
+| `transcription.provider` | `assemblyai` | `assemblyai` \| `local` \| `remote` \| `custom` |
+| `secrets.assemblyai_api_key` | *(required by default)* | Cloud transcription + speaker labels |
+| `secrets.hf_token` | *(local / worker)* | Required only when `provider: local` |
 | `transcription.model` | `medium` | Local / worker only — use `large-v3` for better quality |
 | `transcription.diarize` | `true` | Local only (pyannote speaker labels) |
-| `sync.delete_after_transcribe` | `true` for cloud/remote | Delete from device after successful transcript |
+| `sync.delete_after_transcribe` | `true` for assemblyai/remote | Delete from device after successful transcript |
 | `markdown.save_segments_json` | `true` | Timestamp sidecar; set `false` only if you don't need timings |
 
 Other options are documented as comments in `config.example.yaml`.
@@ -130,20 +131,32 @@ Other options are documented as comments in `config.example.yaml`.
 
 | Profile | Config | Best for |
 |---|---|---|
+| **B — Cloud (default)** | `provider: assemblyai` or omit | Multi-laptop, fast turnaround, no local GPU |
 | **A — Local** | `provider: local` | GPU machine or small tests on CPU |
-| **B — Cloud** | `provider: assemblyai` | Multi-laptop, fast turnaround, no local GPU |
 | **C1 — GPU box** | Plug HiDock into home PC, `provider: local` | One machine owns sync + transcribe |
 | **C2 — Remote worker** | `provider: remote` + worker on GPU host | Sync on laptop, transcribe on home PC |
 
-**Profile B (AssemblyAI):**
+**Default (AssemblyAI):** only `secrets.assemblyai_api_key` is required. `transcription.provider` defaults to `assemblyai`.
+
+**Profile B (explicit):**
 
 ```yaml
 transcription:
-  provider: assemblyai
-  language: en   # optional; omit for auto-detect
+  provider: assemblyai   # optional; this is the default
+  language: en           # optional; omit for auto-detect
 
 secrets:
   assemblyai_api_key: "..."
+```
+
+**Profile A (local Whisper + pyannote):**
+
+```yaml
+transcription:
+  provider: local
+
+secrets:
+  hf_token: "hf_..."
 ```
 
 **Profile C2 (self-hosted worker):** On your GPU machine:

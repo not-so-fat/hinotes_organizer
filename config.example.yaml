@@ -1,22 +1,22 @@
 # Copy to config.yaml and fill in the values below.
-# config.yaml is gitignored — safe for tokens.
+# config.yaml is gitignored - safe for tokens.
 
 output:
   dir: /path/to/your/Obsidian/Transcripts/HiDock
 
 secrets:
-  # Required for local / self-hosted speaker labels (pyannote).
+  # Default provider is AssemblyAI (fast cloud transcription + speaker labels).
+  assemblyai_api_key: ""
+
+  # Local / self-hosted worker only (pyannote speaker labels).
   # Accept https://huggingface.co/pyannote/speaker-diarization-community-1
-  hf_token: ""
+  # hf_token: ""
 
-  # Profile B — cloud transcription (AssemblyAI)
-  # assemblyai_api_key: ""
-
-  # Optional — only if you use scripts/sync_transcripts.py (HiNotes cloud pull)
-  # Chrome → hinotes.hidock.com → Console → localStorage.getItem('accessToken')
+  # Optional - only if you use scripts/sync_transcripts.py (HiNotes cloud pull)
+  # Chrome -> hinotes.hidock.com -> Console -> localStorage.getItem('accessToken')
   # hinotes_token: ""
 
-# Everything below has sensible defaults; uncomment only if needed.
+# transcription.provider defaults to assemblyai. Uncomment to override:
 #
 # transcription:
 #   provider: local          # local | assemblyai | remote | custom

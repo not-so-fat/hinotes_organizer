@@ -33,7 +33,7 @@ def _import_class(dotted_path: str) -> Type[Transcriber]:
 
 
 def get_transcriber(config: Config) -> Transcriber:
-    provider = (config.transcription.provider or "local").strip().lower()
+    provider = (config.transcription.provider or "assemblyai").strip().lower()
 
     if provider == "custom":
         custom_class = (config.transcription.custom_class or "").strip()

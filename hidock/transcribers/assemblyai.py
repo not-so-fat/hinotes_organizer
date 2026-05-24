@@ -11,8 +11,19 @@ from hidock.transcribers.base import Transcriber, TranscriptionResult
 from hidock.transcribers.util import log, normalize_speaker_label
 
 ASSEMBLYAI_BASE = "https://api.assemblyai.com/v2"
+DEFAULT_SPEECH_MODELS = ["universal-2"]
 POLL_INTERVAL_SEC = 3
 MAX_WAIT_SEC = 7200
+
+
+def _raise_for_status(response: requests.Response, *, context: str) -> None:
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = response.text.strip()
+        if detail:
+            raise RuntimeError(f"AssemblyAI {context} failed ({response.status_code}): {detail}") from exc
+        raise RuntimeError(f"AssemblyAI {context} failed ({response.status_code})") from exc
 
 
 class AssemblyAITranscriber(Transcriber):
@@ -60,10 +71,13 @@ class AssemblyAITranscriber(Transcriber):
     def _create_transcript(self, upload_url: str) -> str:
         body: dict[str, object] = {
             "audio_url": upload_url,
+            "speech_models": DEFAULT_SPEECH_MODELS,
             "speaker_labels": True,
         }
         if self._language:
             body["language_code"] = self._language
+        else:
+            body["language_detection"] = True
 
         response = requests.post(
             f"{ASSEMBLYAI_BASE}/transcript",
@@ -71,7 +85,7 @@ class AssemblyAITranscriber(Transcriber):
             json=body,
             timeout=60,
         )
-        response.raise_for_status()
+        _raise_for_status(response, context="transcript create")
         return response.json()["id"]
 
     def _poll(self, transcript_id: str) -> dict:
@@ -82,7 +96,7 @@ class AssemblyAITranscriber(Transcriber):
                 headers=self._headers,
                 timeout=60,
             )
-            response.raise_for_status()
+            _raise_for_status(response, context="transcript poll")
             data = response.json()
             status = data.get("status")
             if status == "completed":
@@ -111,15 +125,22 @@ class AssemblyAITranscriber(Transcriber):
             )
 
         if not segments and data.get("text"):
+            duration_raw = float(data.get("audio_duration") or 0)
             segments.append(
                 TranscriptSegment(
                     start=0.0,
-                    end=float(data.get("audio_duration") or 0) / 1000.0,
+                    end=duration_raw,
                     speaker="Speaker 1",
                     text=str(data["text"]).strip(),
                 ),
             )
 
-        duration_ms = data.get("audio_duration")
-        duration = float(duration_ms) / 1000.0 if duration_ms else None
+        duration_raw = data.get("audio_duration")
+        duration = float(duration_raw) if duration_raw is not None else None
+
+        if segments:
+            max_end = max(seg.end for seg in segments)
+            if duration is None or duration + 1 < max_end:
+                duration = max_end
+
         return segments, duration
