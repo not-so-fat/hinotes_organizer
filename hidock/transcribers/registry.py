@@ -3,18 +3,15 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Type
 
-from hidock.transcribers.assemblyai import AssemblyAITranscriber
 from hidock.transcribers.base import Transcriber
-from hidock.transcribers.local import LocalTranscriber
-from hidock.transcribers.remote import RemoteTranscriber
 
 if TYPE_CHECKING:
     from hidock.config import Config
 
-_BUILTIN: dict[str, Type[Transcriber]] = {
-    "local": LocalTranscriber,
-    "assemblyai": AssemblyAITranscriber,
-    "remote": RemoteTranscriber,
+_BUILTIN_PATHS: dict[str, str] = {
+    "local": "hidock.transcribers.local.LocalTranscriber",
+    "assemblyai": "hidock.transcribers.assemblyai.AssemblyAITranscriber",
+    "remote": "hidock.transcribers.remote.RemoteTranscriber",
 }
 
 
@@ -32,6 +29,14 @@ def _import_class(dotted_path: str) -> Type[Transcriber]:
     return cls
 
 
+def _load_builtin(provider: str) -> Type[Transcriber]:
+    dotted_path = _BUILTIN_PATHS.get(provider)
+    if dotted_path is None:
+        known = ", ".join(sorted({*_BUILTIN_PATHS, "custom"}))
+        raise ValueError(f"Unknown transcription.provider {provider!r}. Known: {known}.")
+    return _import_class(dotted_path)
+
+
 def get_transcriber(config: Config) -> Transcriber:
     provider = (config.transcription.provider or "assemblyai").strip().lower()
 
@@ -44,9 +49,5 @@ def get_transcriber(config: Config) -> Transcriber:
         cls = _import_class(custom_class)
         return cls.from_config(config)
 
-    cls = _BUILTIN.get(provider)
-    if cls is None:
-        known = ", ".join(sorted({*_BUILTIN, "custom"}))
-        raise ValueError(f"Unknown transcription.provider {provider!r}. Known: {known}.")
-
+    cls = _load_builtin(provider)
     return cls.from_config(config)

@@ -1,30 +1,73 @@
 # hinotes_organizer
 
-Sync HiDock P1 recordings to your Mac, transcribe them with speaker labels (AssemblyAI by default), and save Obsidian-ready markdown — no HiNotes cloud required.
+Sync HiDock P1 recordings to your Mac, transcribe with speaker labels via **AssemblyAI** (default), and save Obsidian-ready markdown — no HiNotes cloud required.
 
-## Quick start
+## 5-minute setup
+
+**You need:** HiDock P1 (USB), macOS, [Node.js 22+](https://nodejs.org/), Python 3.10+, [AssemblyAI API key](https://www.assemblyai.com/dashboard) (free tier works for testing).
 
 ```bash
-cp config.example.yaml config.yaml
-# Edit config.yaml: output.dir and secrets.assemblyai_api_key
+# macOS USB access
+brew install libusb
 
-python3 -m venv .venv && source .venv/bin/activate pip install -r requirements.txt
+# clone the repo, then from repo root:
+chmod +x scripts/setup.sh
+./scripts/setup.sh
+```
+
+Edit **`config.yaml`** — only two required fields:
+
+```yaml
+output:
+  dir: ./output/transcripts          # or your Obsidian vault folder
+
+secrets:
+  assemblyai_api_key: "your-key-here"
+```
+
+**First run** (close HiNotes / Chrome first — they lock the USB device):
+
+```bash
+source .venv/bin/activate
+python scripts/pipeline.py run --limit 1
+```
+
+That downloads one recording, transcribes it, writes markdown, and removes it from the device. Re-run without `--limit` to process everything pending.
+
+### Setup checklist
+
+| Step | Command / action |
+|---|---|
+| 1. One-time install | `./scripts/setup.sh` |
+| 2. Config | `output.dir` + `secrets.assemblyai_api_key` in `config.yaml` |
+| 3. Close HiNotes | Quit Chrome tab or app using the HiDock |
+| 4. Test | `python scripts/pipeline.py run --limit 1` |
+| 5. Point at Obsidian | Change `output.dir` to your vault when ready |
+
+All settings live in **`config.yaml`** (gitignored). No `.env` file.
+
+### Manual setup (instead of `setup.sh`)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
 cd device_usb && npm install && npm run build && cd ..
 
-python scripts/pipeline.py run
+cp config.example.yaml config.yaml
+# edit config.yaml, then:
+python scripts/pipeline.py run --limit 1
 ```
 
-**Before syncing:** close HiNotes / Chrome — they hold an exclusive USB lock on the device.
-
-All settings and secrets live in **`config.yaml`** (gitignored). No `.env` file.
+**Local transcription** (Whisper + pyannote on your GPU) needs extra packages — see [Local transcription](#local-transcription-whisper--pyannote) below.
 
 ## What you get
 
-Each recording becomes a markdown file in your vault:
+Each recording becomes a markdown file:
 
 ```
-Transcripts/HiDock/2026-01-15_Recording_Rec12_a1b2c3d4.md
+output/transcripts/2026-01-15_Recording_Rec12_a1b2c3d4.md
 ```
 
 ```yaml
@@ -32,6 +75,7 @@ Transcripts/HiDock/2026-01-15_Recording_Rec12_a1b2c3d4.md
 title: Recording Rec12
 date: 2026/01/15
 recorded_at: 2026-01-15T10:30:00
+duration_seconds: 3600.0
 source: HiDock
 tags: [transcript, hidock, meeting]
 segments_file: 2026-01-15_Recording_Rec12_a1b2c3d4.segments.json
@@ -43,181 +87,140 @@ Speaker 1: Hello everyone.
 Speaker 2: Thanks for joining.
 ```
 
-Timestamps (start/end per utterance) are in a companion `.segments.json` file, linked from the markdown front matter.
-
-## Prerequisites
-
-| Requirement | Notes |
-|---|---|
-| HiDock P1 | Connected via USB |
-| Node.js 22+ | For USB sync (`device_usb/`) |
-| libusb | macOS: `brew install libusb` |
-| Python 3.10+ | Transcription pipeline |
-| AssemblyAI API key | Default transcription provider — [assemblyai.com](https://www.assemblyai.com/) |
-| Hugging Face token | Only for `provider: local` or self-hosted worker — see [Speaker labels (Hugging Face)](#speaker-labels-hugging-face) |
+Per-utterance timestamps live in the companion `.segments.json` file.
 
 ## How it works
 
-Two separate phases — **all downloads finish before any transcription starts**:
-
 ```
-Phase 1  sync     →  download every new .hda to .cache/audio/
-Phase 2  transcribe  →  process cached audio → markdown in output.dir
+Phase 1  sync        →  download new .hda files to .cache/audio/
+Phase 2  transcribe  →  AssemblyAI → markdown in output.dir
 ```
-
-`run` = phase 1, then phase 2. You can also run them separately:
 
 ```bash
-python scripts/pipeline.py sync         # download everything new first
-python scripts/pipeline.py transcribe   # then transcribe everything downloaded
+python scripts/pipeline.py sync         # download only
+python scripts/pipeline.py transcribe   # transcribe cached audio only
+python scripts/pipeline.py run          # both phases
+python scripts/pipeline.py list         # what's on the device (JSON)
 ```
 
-`--limit N` caps how many files are processed (newest first). Handy for testing:
+Use `--limit N` to cap batch size (newest first). Good for testing:
 
 ```bash
-python scripts/pipeline.py run --limit 1    # one recording end-to-end
-python scripts/pipeline.py sync --limit 3   # download 3 newest only
-python scripts/pipeline.py transcribe --limit 3
-```
-
-Without `--limit`, phase 1 downloads **all** pending files before phase 2 starts.
-
-## Commands
-
-```bash
-python scripts/pipeline.py list        # list recordings on device
-python scripts/pipeline.py sync        # download new files
-python scripts/pipeline.py transcribe  # transcribe cached audio
-python scripts/pipeline.py run         # phase 1 + 2
-
-# Device storage management
-python scripts/pipeline.py device-clean --dry-run              # preview safe cleanup
-python scripts/pipeline.py device-clean --older-than 30 --yes  # delete synced files 30+ days old
-python scripts/pipeline.py device-rm 2026Jan15-103000-Rec12.hda
-
-# Test with one recent recording
 python scripts/pipeline.py run --limit 1
-
-# Retry diarization only (after a failed run that cached Whisper output)
-python scripts/pipeline.py transcribe --limit 1 --reuse-whisper
 ```
+
+After a successful transcript, the recording is **removed from the HiDock** by default so a second laptop won't re-download it. Set `sync.delete_after_transcribe: false` in `config.yaml` to keep files on the device.
 
 ## Configuration
 
-Copy `config.example.yaml` → `config.yaml`. Two fields to fill in:
-
-```yaml
-output:
-  dir: /path/to/your/Obsidian/Transcripts/HiDock
-
-secrets:
-  assemblyai_api_key: "..."   # default provider
-```
-
 | Setting | Default | Notes |
 |---|---|---|
-| `output.dir` | `./output/transcripts` | Where markdown files are written |
-| `transcription.provider` | `assemblyai` | `assemblyai` \| `local` \| `remote` \| `custom` |
-| `secrets.assemblyai_api_key` | *(required by default)* | Cloud transcription + speaker labels |
-| `secrets.hf_token` | *(local / worker)* | Required only when `provider: local` |
-| `transcription.model` | `medium` | Local / worker only — use `large-v3` for better quality |
-| `transcription.diarize` | `true` | Local only (pyannote speaker labels) |
-| `sync.delete_after_transcribe` | `true` for assemblyai/remote | Delete from device after successful transcript |
-| `markdown.save_segments_json` | `true` | Timestamp sidecar; set `false` only if you don't need timings |
+| `output.dir` | `./output/transcripts` | Where markdown is written |
+| `transcription.provider` | `assemblyai` | Omit to use AssemblyAI |
+| `secrets.assemblyai_api_key` | *(required)* | [Get a key](https://www.assemblyai.com/dashboard) |
+| `sync.delete_after_transcribe` | `true` | Clears device after success |
+| `markdown.save_segments_json` | `true` | Timestamp sidecar JSON |
 
-Other options are documented as comments in `config.example.yaml`.
+Everything else has sensible defaults. See `config.example.yaml` for local, remote, and HiNotes options.
 
-### Processing profiles
+### Multi-laptop
 
-| Profile | Config | Best for |
-|---|---|---|
-| **B — Cloud (default)** | `provider: assemblyai` or omit | Multi-laptop, fast turnaround, no local GPU |
-| **A — Local** | `provider: local` | GPU machine or small tests on CPU |
-| **C1 — GPU box** | Plug HiDock into home PC, `provider: local` | One machine owns sync + transcribe |
-| **C2 — Remote worker** | `provider: remote` + worker on GPU host | Sync on laptop, transcribe on home PC |
+Use the same Obsidian vault on both machines (iCloud, Syncthing, etc.). Default AssemblyAI + `delete_after_transcribe` is the intended workflow. Check employer policy before sending confidential meetings to a cloud API.
 
-**Default (AssemblyAI):** only `secrets.assemblyai_api_key` is required. `transcription.provider` defaults to `assemblyai`.
+## Local transcription (Whisper + pyannote)
 
-**Profile B (explicit):**
+For a GPU machine or overnight batch on a home PC — **not recommended on a MacBook CPU** for long recordings.
 
-```yaml
-transcription:
-  provider: assemblyai   # optional; this is the default
-  language: en           # optional; omit for auto-detect
-
-secrets:
-  assemblyai_api_key: "..."
+```bash
+pip install -r requirements-local.txt
 ```
-
-**Profile A (local Whisper + pyannote):**
 
 ```yaml
 transcription:
   provider: local
 
 secrets:
-  hf_token: "hf_..."
+  hf_token: "hf_..."   # accept pyannote/speaker-diarization-community-1 on Hugging Face
 ```
 
-**Profile C2 (self-hosted worker):** On your GPU machine:
+Retry diarization without re-running Whisper:
 
 ```bash
+python scripts/pipeline.py transcribe --limit 1 --reuse-whisper
+```
+
+### Self-hosted GPU worker
+
+On the GPU machine:
+
+```bash
+pip install -r requirements-local.txt
 python scripts/transcribe_worker.py --host 0.0.0.0 --port 8765
 ```
 
-On your laptop:
+On your laptop (`requirements.txt` only):
 
 ```yaml
 transcription:
   provider: remote
-  remote_url: http://192.168.1.50:8765   # or Tailscale hostname
-  remote_token: "shared-secret"          # optional
+  remote_url: http://192.168.1.50:8765
+  remote_token: "shared-secret"   # optional
 ```
 
-Use Tailscale or a VPN so the worker is not exposed on the public internet. The worker accepts one job at a time; clients retry automatically on HTTP 503.
-
-### Multi-laptop workflow
-
-When you use the same HiDock on a personal and work laptop:
-
-1. Point both machines at the same Obsidian vault (iCloud, Syncthing, etc.).
-2. Use **Profile B** or **C2** — local CPU transcription is too slow for daily use.
-3. Enable `sync.delete_after_transcribe: true` (default for `assemblyai` and `remote`) so the second laptop does not re-download finished recordings.
-
-After a successful transcript, the pipeline removes the file from the device. Local audio in `.cache/audio/` and markdown in `output.dir` remain on that machine; the synced vault is the shared source of truth for transcripts.
-
-**Privacy:** Check employer policy before sending work meetings to AssemblyAI (Profile B). Profile C2 keeps audio on your own network.
-
-### Speaker labels (Hugging Face)
-
-Speaker diarization (`transcription.diarize: true`, the default) uses **[pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)** on Hugging Face. Accept the model terms on that page (log in first, then **Agree and access repository**), create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (read access is enough), and set it in `config.yaml`:
-
-```yaml
-secrets:
-  hf_token: "hf_..."
-```
-
-If you only want plain transcription without `Speaker 1` / `Speaker 2` labels, set `transcription.diarize: false` — then no Hugging Face token or model access is required.
+Use Tailscale or a VPN — don't expose the worker on the public internet.
 
 ## Automation
 
-The pipeline is safe to re-run — state in `.state/pipeline.json` skips files already synced or transcribed.
-
-**Requirements for unattended runs:**
-
-- Close HiNotes / Chrome first (USB exclusive lock)
-- One-time setup done (venv, `device_usb` built, `config.yaml` with tokens)
-- Device stays plugged in until sync finishes
-
-### Option 1: Run after plugging in
+Safe to re-run — `.state/pipeline.json` skips finished files.
 
 ```bash
 ./scripts/run_pipeline.sh
 ```
 
-### Option 2: macOS LaunchAgent
+For macOS LaunchAgent setup, see [Automation details](#automation-details) below.
 
-Runs every minute; skips if no HiDock connected. Reads secrets from `config.yaml` — no extra env vars needed.
+## Device storage
+
+Manual cleanup of old synced files (automatic delete-after-transcribe handles the common case):
+
+```bash
+python scripts/pipeline.py device-clean --dry-run
+python scripts/pipeline.py device-clean --older-than 30 --yes
+python scripts/pipeline.py device-rm 2026Jan15-103000-Rec12.hda
+```
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `LIBUSB_ERROR_ACCESS` | Close HiNotes / Chrome, replug device |
+| `device_usb not built` | Run `./scripts/setup.sh` or `cd device_usb && npm install && npm run build` |
+| `Missing config.yaml` | `cp config.example.yaml config.yaml` |
+| `UnicodeDecodeError` in config | Re-save `config.yaml` as UTF-8; use plain `-` in comments |
+| `assemblyai_api_key is not set` | Add key under `secrets:` in `config.yaml` |
+| AssemblyAI 400 / `speech_models` | Update to latest code — API requires `universal-2` model |
+| Wrong `duration_seconds` | Fixed in latest code — re-transcribe or edit front matter |
+| Diarization / HF 403 | Local mode only — set `hf_token`, accept [community-1 model](https://huggingface.co/pyannote/speaker-diarization-community-1) |
+| Duplicate work on re-run | Expected — state file skips completed files |
+| Generic titles (`Recording Rec12`) | Rename in Obsidian; device filenames lack meeting names |
+
+## HiNotes cloud sync (optional)
+
+If you already have transcripts in HiNotes cloud:
+
+```yaml
+secrets:
+  hinotes_token: "..."   # Chrome → hinotes.hidock.com → localStorage.getItem('accessToken')
+```
+
+```bash
+python scripts/sync_transcripts.py verify
+python scripts/sync_transcripts.py sync
+```
+
+## Automation details
+
+**Requirements:** HiDock plugged in, HiNotes closed, setup done.
 
 1. `chmod +x scripts/run_pipeline.sh`
 2. Create `~/Library/LaunchAgents/com.hidock.pipeline.plist`:
@@ -248,61 +251,6 @@ Runs every minute; skips if no HiDock connected. Reads secrets from `config.yaml
 3. `launchctl load ~/Library/LaunchAgents/com.hidock.pipeline.plist`
 
 Logs: `/tmp/hidock-pipeline.log`
-
-## Device storage
-
-Free space on the P1 by deleting recordings **already copied to your laptop**.
-
-Default `device-clean` only targets files that are **downloaded locally** (audio exists in `.cache/audio/`). Use `--dry-run` first:
-
-```bash
-python scripts/pipeline.py device-clean --dry-run
-python scripts/pipeline.py device-clean --yes
-```
-
-| Flag | Effect |
-|---|---|
-| `--older-than 30` | Only recordings at least 30 days old |
-| `--transcribed-only` | Also require a local transcript before deleting |
-| `--dry-run` | Show matches, delete nothing |
-| `--yes` | Actually delete (required) |
-| `--all-on-device` | Skip local safety checks (**dangerous**) |
-
-Delete one file by name:
-
-```bash
-python scripts/pipeline.py device-rm 2026Jan15-103000-Rec12.hda
-```
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `LIBUSB_ERROR_ACCESS` | Close HiNotes tab or quit Chrome, replug device |
-| `device_usb not built` | Run `cd device_usb && npm install && npm run build` |
-| Diarization error / HF 403 | Set `secrets.hf_token` and accept [speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) |
-| `Invalid data found when processing input` (torchcodec) | Fixed in current code — re-run `transcribe`; audio is decoded via Whisper's loader, not torchcodec |
-| `AVFFrameReceiver` duplicate class warning | Harmless on macOS when Homebrew `ffmpeg` is installed alongside PyAV; ignore unless you see crashes |
-| Duplicate work on re-run | Normal — state in `.state/pipeline.json` skips finished files |
-| No meeting title | Device filenames are generic (`Recording Rec12`); rename in Obsidian |
-
-## HiNotes cloud sync (optional)
-
-If you already have transcripts in HiNotes cloud, add your token to the same `config.yaml`:
-
-```yaml
-secrets:
-  hinotes_token: "..."   # Chrome → localStorage.getItem('accessToken')
-```
-
-Then:
-
-```bash
-python scripts/sync_transcripts.py verify
-python scripts/sync_transcripts.py sync
-```
-
-Uses the same `output.dir` as the USB pipeline.
 
 ## Documentation
 

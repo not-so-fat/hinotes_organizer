@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Self-hosted transcription worker — runs local Whisper+pyannote on a GPU machine.
 
+Requires local deps:
+  pip install -r requirements-local.txt
+
 Usage:
   python scripts/transcribe_worker.py --host 0.0.0.0 --port 8765
 

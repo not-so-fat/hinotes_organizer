@@ -1,38 +1,36 @@
-# Copy to config.yaml and fill in the values below.
-# config.yaml is gitignored - safe for tokens.
+# Copy to config.yaml and fill in the two required fields below.
+# config.yaml is gitignored - safe for API keys.
+#
+# Quick path:
+#   1. cp config.example.yaml config.yaml
+#   2. Set output.dir (Obsidian folder, or ./output/transcripts to try it out)
+#   3. Set secrets.assemblyai_api_key from https://www.assemblyai.com/dashboard
+#   4. python scripts/pipeline.py run --limit 1
+#
+# Defaults you get without editing anything else:
+#   - transcription.provider: assemblyai (fast cloud + speaker labels)
+#   - sync.delete_after_transcribe: true (removes file from device after success)
 
 output:
-  dir: /path/to/your/Obsidian/Transcripts/HiDock
+  dir: ./output/transcripts
 
 secrets:
-  # Default provider is AssemblyAI (fast cloud transcription + speaker labels).
   assemblyai_api_key: ""
 
-  # Local / self-hosted worker only (pyannote speaker labels).
-  # Accept https://huggingface.co/pyannote/speaker-diarization-community-1
-  # hf_token: ""
-
-  # Optional - only if you use scripts/sync_transcripts.py (HiNotes cloud pull)
-  # Chrome -> hinotes.hidock.com -> Console -> localStorage.getItem('accessToken')
-  # hinotes_token: ""
-
-# transcription.provider defaults to assemblyai. Uncomment to override:
+# --- Optional: only if you switch away from AssemblyAI ---
 #
-# transcription:
-#   provider: local          # local | assemblyai | remote | custom
-#   model: medium             # local / worker only
-#   device: auto              # local / worker only: auto | cpu | cuda
-#   diarize: true             # local only (pyannote)
-#   language: en              # optional ISO code; omit for auto-detect
-#   remote_url: http://192.168.1.50:8765   # remote only (worker base URL)
-#   remote_token: ""          # remote only (optional Bearer token)
-#   custom_class: my_pkg.transcriber.MyTranscriber   # custom only
+# Local Whisper + pyannote (slow on CPU — install requirements-local.txt first):
+#   transcription:
+#     provider: local
+#   secrets:
+#     hf_token: ""   # accept https://huggingface.co/pyannote/speaker-diarization-community-1
 #
-# sync:
-#   delete_after_transcribe: true   # default true for assemblyai/remote; false for local
+# Self-hosted GPU worker on another machine:
+#   transcription:
+#     provider: remote
+#     remote_url: http://192.168.1.50:8765
+#     remote_token: ""
 #
-# Custom transcriber: subclass hidock.transcribers.base.Transcriber and return
-# list[TranscriptSegment] via TranscriptionResult. See hidock/transcribers/example_custom.py.
-#
-# markdown:
-#   save_segments_json: true
+# HiNotes cloud pull (scripts/sync_transcripts.py):
+#   secrets:
+#     hinotes_token: ""

@@ -1,5 +1,4 @@
+# Default install (AssemblyAI / remote client). Fast — no GPU libraries.
 requests>=2.31.0
 pyyaml>=6.0
-faster-whisper>=1.0.0
-pyannote.audio>=3.1.0
-torch>=2.0.0
+av>=10.0.0

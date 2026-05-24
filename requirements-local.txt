@@ -1,0 +1,5 @@
+# Local Whisper + pyannote transcription (Profile A / GPU worker).
+-r requirements.txt
+faster-whisper>=1.0.0
+pyannote.audio>=3.1.0
+torch>=2.0.0
