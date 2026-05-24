@@ -17,7 +17,7 @@ from hidock.config import load_config
 from hidock.filename import build_markdown_filename, parse_hda_filename
 from hidock.markdown import TranscriptSegment, write_segments_json, write_transcript_markdown
 from hidock.state import FileRecord, load_state, save_state
-from hidock.transcribe import load_transcription_models, transcribe_audio
+from hidock.transcribers import get_transcriber
 
 
 def _limit_label(limit: int | None) -> str:
@@ -157,94 +157,103 @@ def transcribe_pending(
         print("No recordings waiting for transcription.", file=sys.stderr, flush=True)
         return 0
 
-    hf_token = config.hf_token()
+    transcriber = get_transcriber(config)
     total = len(pending)
-    print(f"Transcribing {total} file(s)...", file=sys.stderr, flush=True)
-
-    need_whisper = False
-    if reuse_whisper:
-        for rec in pending:
-            audio_path = Path(rec.audio_path)
-            if not audio_path.with_name(f"{audio_path.name}.whisper.json").exists():
-                need_whisper = True
-                break
-    else:
-        need_whisper = True
-
-    if reuse_whisper and not need_whisper:
-        print("Reusing cached Whisper output for all pending file(s).", file=sys.stderr, flush=True)
-
-    models = load_transcription_models(
-        model_name=config.transcription.model,
-        device=config.transcription.device,
-        compute_type=config.transcription.compute_type,
-        diarize=config.transcription.diarize,
-        hf_token=hf_token,
-        load_whisper=need_whisper,
+    print(
+        f"Transcribing {total} file(s) via {transcriber.name!r}...",
+        file=sys.stderr,
+        flush=True,
     )
 
-    completed = 0
-    for idx, rec in enumerate(pending, start=1):
-        audio_path = Path(rec.audio_path)
-        if not audio_path.exists():
-            print(f"[{idx}/{total}] Skipping missing audio: {audio_path}", file=sys.stderr, flush=True)
-            continue
-
-        fallback_time = None
-        if rec.recorded_at:
-            fallback_time = datetime.fromisoformat(rec.recorded_at.replace("Z", "+00:00"))
-
-        parsed = parse_hda_filename(
-            rec.device_file,
-            rec.signature,
-            fallback_time=fallback_time,
-        )
-        title = config.markdown.title_template.format(
-            rec_id=parsed.rec_id,
-            date=parsed.date_str,
-            device_file=parsed.device_file,
-        )
-        md_name = build_markdown_filename(config.output.filename_pattern, parsed, title)
-        md_path = config.transcript_dir / md_name
-        segments_json_path = md_path.with_suffix(".segments.json")
-
-        size_mb = audio_path.stat().st_size / 1024 / 1024
+    reuse_cache = reuse_whisper and transcriber.supports_cache_reuse()
+    if reuse_whisper and not transcriber.supports_cache_reuse():
         print(
-            f"[{idx}/{total}] {rec.device_file} ({size_mb:.1f} MB) -> {md_path.name}",
+            f"  (--reuse-whisper ignored for provider {transcriber.name!r})",
             file=sys.stderr,
             flush=True,
         )
-        segments, duration = transcribe_audio(
-            audio_path,
-            models,
-            model_name=config.transcription.model,
-            language=config.transcription.language,
-            diarize=config.transcription.diarize,
-            reuse_whisper=reuse_whisper,
-        )
 
-        if config.markdown.save_segments_json:
-            write_segments_json(segments_json_path, segments, parsed)
+    audio_paths = [
+        Path(rec.audio_path)
+        for rec in pending
+        if rec.audio_path and Path(rec.audio_path).exists()
+    ]
 
-        write_transcript_markdown(
-            md_path,
-            title=title,
-            parsed=parsed,
-            segments=segments,
-            source=config.markdown.source,
-            tags=config.markdown.tags,
-            duration_seconds=duration,
-            segments_json_path=segments_json_path if config.markdown.save_segments_json else None,
-        )
+    completed = 0
+    try:
+        transcriber.prepare(audio_paths, reuse_cache=reuse_cache)
 
-        rec.transcribed_at = datetime.now(timezone.utc).isoformat()
-        rec.markdown_path = str(md_path)
-        if config.markdown.save_segments_json:
-            rec.segments_path = str(segments_json_path)
-        state.upsert(rec)
-        save_state(config.state_file, state)
-        completed += 1
-        print(f"[{idx}/{total}] Done — wrote {md_path}", file=sys.stderr, flush=True)
+        for idx, rec in enumerate(pending, start=1):
+            audio_path = Path(rec.audio_path)
+            if not audio_path.exists():
+                print(f"[{idx}/{total}] Skipping missing audio: {audio_path}", file=sys.stderr, flush=True)
+                continue
+
+            fallback_time = None
+            if rec.recorded_at:
+                fallback_time = datetime.fromisoformat(rec.recorded_at.replace("Z", "+00:00"))
+
+            parsed = parse_hda_filename(
+                rec.device_file,
+                rec.signature,
+                fallback_time=fallback_time,
+            )
+            title = config.markdown.title_template.format(
+                rec_id=parsed.rec_id,
+                date=parsed.date_str,
+                device_file=parsed.device_file,
+            )
+            md_name = build_markdown_filename(config.output.filename_pattern, parsed, title)
+            md_path = config.transcript_dir / md_name
+            segments_json_path = md_path.with_suffix(".segments.json")
+
+            size_mb = audio_path.stat().st_size / 1024 / 1024
+            print(
+                f"[{idx}/{total}] {rec.device_file} ({size_mb:.1f} MB) -> {md_path.name}",
+                file=sys.stderr,
+                flush=True,
+            )
+            result = transcriber.transcribe(audio_path, reuse_cache=reuse_cache)
+            segments = result.segments
+            duration = result.duration_seconds
+
+            if config.markdown.save_segments_json:
+                write_segments_json(segments_json_path, segments, parsed)
+
+            write_transcript_markdown(
+                md_path,
+                title=title,
+                parsed=parsed,
+                segments=segments,
+                source=config.markdown.source,
+                tags=config.markdown.tags,
+                duration_seconds=duration,
+                segments_json_path=segments_json_path if config.markdown.save_segments_json else None,
+            )
+
+            rec.transcribed_at = datetime.now(timezone.utc).isoformat()
+            rec.markdown_path = str(md_path)
+            if config.markdown.save_segments_json:
+                rec.segments_path = str(segments_json_path)
+            state.upsert(rec)
+            save_state(config.state_file, state)
+            completed += 1
+            print(f"[{idx}/{total}] Done — wrote {md_path}", file=sys.stderr, flush=True)
+
+            if config.sync.delete_after_transcribe and rec.device_file:
+                print(
+                    f"[{idx}/{total}] Deleting {rec.device_file} from device...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                run_node_delete(config, rec.device_file)
+                print(
+                    f"[{idx}/{total}] Deleted {rec.device_file} from device",
+                    file=sys.stderr,
+                    flush=True,
+                )
+    finally:
+        transcriber.close()
 
     print(f"Transcribed {completed} recording(s).", file=sys.stderr, flush=True)
     return completed

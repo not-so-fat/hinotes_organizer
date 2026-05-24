@@ -5,9 +5,12 @@ output:
   dir: /path/to/your/Obsidian/Transcripts/HiDock
 
 secrets:
-  # Required for speaker labels (pyannote). Get one at https://huggingface.co/settings/tokens
-  # and accept https://huggingface.co/pyannote/speaker-diarization-community-1
+  # Required for local / self-hosted speaker labels (pyannote).
+  # Accept https://huggingface.co/pyannote/speaker-diarization-community-1
   hf_token: ""
+
+  # Profile B — cloud transcription (AssemblyAI)
+  # assemblyai_api_key: ""
 
   # Optional — only if you use scripts/sync_transcripts.py (HiNotes cloud pull)
   # Chrome → hinotes.hidock.com → Console → localStorage.getItem('accessToken')
@@ -16,8 +19,20 @@ secrets:
 # Everything below has sensible defaults; uncomment only if needed.
 #
 # transcription:
-#   model: medium
-#   diarize: true
+#   provider: local          # local | assemblyai | remote | custom
+#   model: medium             # local / worker only
+#   device: auto              # local / worker only: auto | cpu | cuda
+#   diarize: true             # local only (pyannote)
+#   language: en              # optional ISO code; omit for auto-detect
+#   remote_url: http://192.168.1.50:8765   # remote only (worker base URL)
+#   remote_token: ""          # remote only (optional Bearer token)
+#   custom_class: my_pkg.transcriber.MyTranscriber   # custom only
+#
+# sync:
+#   delete_after_transcribe: true   # default true for assemblyai/remote; false for local
+#
+# Custom transcriber: subclass hidock.transcribers.base.Transcriber and return
+# list[TranscriptSegment] via TranscriptionResult. See hidock/transcribers/example_custom.py.
 #
 # markdown:
 #   save_segments_json: true

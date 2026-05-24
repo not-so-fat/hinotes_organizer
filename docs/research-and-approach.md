@@ -230,7 +230,11 @@ True **voice matching** ("this voice is always Alice") requires extra work (embe
 
 ---
 
-## Chosen approach: Option A pipeline
+## Chosen approach: pluggable processing profiles
+
+See **[PRD.md §1.1](PRD.md)** for the three target profiles (local, AssemblyAI, self-hosted worker) and multi-laptop device cleanup.
+
+**MVP implements Profile A** (local Whisper + pyannote). Profile B (AssemblyAI) is the recommended next step for multi-laptop / backlog use.
 
 ```mermaid
 flowchart TD
@@ -238,12 +242,14 @@ flowchart TD
     B -->|No| X[LIBUSB_ERROR_ACCESS]
     B -->|Yes| C[USB list + download new .hda]
     C --> D[Save as .mp3 in cache]
-    D --> E[faster-whisper ASR]
-    E --> F[pyannote diarization]
-    F --> G[Merge speakers + segments]
-    G --> H[Write Obsidian markdown]
-    G --> I[Write .segments.json sidecar]
-    H --> J[Optional: delete from device]
+    D --> E{transcription.provider}
+    E -->|local| F[Whisper + pyannote]
+    E -->|assemblyai| G[AssemblyAI API]
+    E -->|remote| H[Self-hosted worker]
+    F --> I[Write Obsidian markdown]
+    G --> I
+    H --> I
+    I --> J[Delete from device when done]
 ```
 
 ### Design decisions

@@ -103,7 +103,7 @@ python scripts/pipeline.py transcribe --limit 1 --reuse-whisper
 
 ## Configuration
 
-Copy `config.example.yaml` → `config.yaml`. Two fields to fill in:
+Copy `config.example.yaml` → `config.yaml`. Two fields to fill in for local transcription:
 
 ```yaml
 output:
@@ -116,12 +116,64 @@ secrets:
 | Setting | Default | Notes |
 |---|---|---|
 | `output.dir` | `./output/transcripts` | Where markdown files are written |
-| `secrets.hf_token` | *(required for speaker labels)* | Stored in gitignored `config.yaml` |
-| `transcription.model` | `medium` | Use `large-v3` for better quality, slower |
-| `transcription.diarize` | `true` | Speaker labels |
+| `transcription.provider` | `local` | `local` \| `assemblyai` \| `remote` \| `custom` |
+| `secrets.hf_token` | *(local / worker)* | Required for local speaker labels |
+| `secrets.assemblyai_api_key` | *(cloud)* | Required when `provider: assemblyai` |
+| `transcription.model` | `medium` | Local / worker only — use `large-v3` for better quality |
+| `transcription.diarize` | `true` | Local only (pyannote speaker labels) |
+| `sync.delete_after_transcribe` | `true` for cloud/remote | Delete from device after successful transcript |
 | `markdown.save_segments_json` | `true` | Timestamp sidecar; set `false` only if you don't need timings |
 
 Other options are documented as comments in `config.example.yaml`.
+
+### Processing profiles
+
+| Profile | Config | Best for |
+|---|---|---|
+| **A — Local** | `provider: local` | GPU machine or small tests on CPU |
+| **B — Cloud** | `provider: assemblyai` | Multi-laptop, fast turnaround, no local GPU |
+| **C1 — GPU box** | Plug HiDock into home PC, `provider: local` | One machine owns sync + transcribe |
+| **C2 — Remote worker** | `provider: remote` + worker on GPU host | Sync on laptop, transcribe on home PC |
+
+**Profile B (AssemblyAI):**
+
+```yaml
+transcription:
+  provider: assemblyai
+  language: en   # optional; omit for auto-detect
+
+secrets:
+  assemblyai_api_key: "..."
+```
+
+**Profile C2 (self-hosted worker):** On your GPU machine:
+
+```bash
+python scripts/transcribe_worker.py --host 0.0.0.0 --port 8765
+```
+
+On your laptop:
+
+```yaml
+transcription:
+  provider: remote
+  remote_url: http://192.168.1.50:8765   # or Tailscale hostname
+  remote_token: "shared-secret"          # optional
+```
+
+Use Tailscale or a VPN so the worker is not exposed on the public internet. The worker accepts one job at a time; clients retry automatically on HTTP 503.
+
+### Multi-laptop workflow
+
+When you use the same HiDock on a personal and work laptop:
+
+1. Point both machines at the same Obsidian vault (iCloud, Syncthing, etc.).
+2. Use **Profile B** or **C2** — local CPU transcription is too slow for daily use.
+3. Enable `sync.delete_after_transcribe: true` (default for `assemblyai` and `remote`) so the second laptop does not re-download finished recordings.
+
+After a successful transcript, the pipeline removes the file from the device. Local audio in `.cache/audio/` and markdown in `output.dir` remain on that machine; the synced vault is the shared source of truth for transcripts.
+
+**Privacy:** Check employer policy before sending work meetings to AssemblyAI (Profile B). Profile C2 keeps audio on your own network.
 
 ### Speaker labels (Hugging Face)
 

@@ -24,21 +24,27 @@ class AudioConfig:
 class SyncConfig:
     include_wip: bool
     delete_after_download: bool
+    delete_after_transcribe: bool
 
 
 @dataclass
 class TranscriptionConfig:
+    provider: str
     model: str
     device: str
     compute_type: str
     language: str | None
     diarize: bool
+    custom_class: str | None
+    remote_url: str | None
+    remote_token: str | None
 
 
 @dataclass
 class SecretsConfig:
     hf_token: str | None
     hinotes_token: str | None
+    assemblyai_api_key: str | None
 
 
 @dataclass
@@ -71,6 +77,10 @@ class Config:
         token = (self.secrets.hinotes_token or "").strip()
         return token or None
 
+    def assemblyai_api_key(self) -> str | None:
+        token = (self.secrets.assemblyai_api_key or "").strip()
+        return token or None
+
 
 def _resolve_path(value: str | Path, base: Path = REPO_ROOT) -> Path:
     path = Path(value).expanduser()
@@ -96,6 +106,13 @@ def load_config(path: Path | None = None) -> Config:
     markdown = raw.get("markdown", {})
     secrets = raw.get("secrets", {})
 
+    provider = (transcription.get("provider") or "local").strip().lower()
+    delete_after_transcribe_raw = sync.get("delete_after_transcribe")
+    if delete_after_transcribe_raw is None:
+        delete_after_transcribe = provider in ("assemblyai", "remote")
+    else:
+        delete_after_transcribe = bool(delete_after_transcribe_raw)
+
     return Config(
         output=OutputConfig(
             dir=_resolve_path(output.get("dir", "./output/transcripts")),
@@ -105,13 +122,18 @@ def load_config(path: Path | None = None) -> Config:
         sync=SyncConfig(
             include_wip=bool(sync.get("include_wip", False)),
             delete_after_download=bool(sync.get("delete_after_download", False)),
+            delete_after_transcribe=delete_after_transcribe,
         ),
         transcription=TranscriptionConfig(
+            provider=provider,
             model=transcription.get("model", "medium"),
             device=transcription.get("device", "auto"),
             compute_type=transcription.get("compute_type", "default"),
             language=transcription.get("language"),
             diarize=bool(transcription.get("diarize", True)),
+            custom_class=transcription.get("custom_class"),
+            remote_url=transcription.get("remote_url"),
+            remote_token=transcription.get("remote_token"),
         ),
         markdown=MarkdownConfig(
             title_template=markdown.get("title_template", "Recording {rec_id}"),
@@ -122,6 +144,7 @@ def load_config(path: Path | None = None) -> Config:
         secrets=SecretsConfig(
             hf_token=secrets.get("hf_token"),
             hinotes_token=secrets.get("hinotes_token"),
+            assemblyai_api_key=secrets.get("assemblyai_api_key"),
         ),
         state_file=_resolve_path(raw.get("state_file", ".state/pipeline.json")),
     )
