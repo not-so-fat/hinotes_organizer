@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if ! ioreg -p IOUSB -l -w 0 2>/dev/null | grep -qi "idVendor = 0x10d6"; then
+if ! ioreg -p IOUSB -l -w 0 2>/dev/null | grep -qiE '"idVendor"\s*=\s*(4310|0x10d6)'; then
   exit 0
 fi
 
